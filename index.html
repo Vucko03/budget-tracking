@@ -175,6 +175,18 @@ dialog label .field{color:var(--text);font-weight:400;font-size:16px}
 #toast{position:fixed;left:50%;bottom:calc(86px + env(safe-area-inset-bottom));transform:translate(-50%,20px);background:#1d1d2e;color:#fff;border-radius:12px;padding:10px 12px 10px 16px;display:flex;gap:12px;align-items:center;opacity:0;pointer-events:none;transition:.2s;z-index:20;max-width:92vw;font-size:14px}
 #toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 #toast button{border:0;background:transparent;color:#a99fff;font-weight:700;cursor:pointer;padding:4px 6px}
+[hidden]{display:none!important}
+/* pay from: choose which part of the salary a purchase comes from */
+.bucket{border:1.5px solid var(--line);background:var(--card);border-radius:999px;padding:5px 12px 5px 6px;font-size:14px;white-space:nowrap;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.bucket .em{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:14px;flex:none}
+.bucket small{color:var(--muted);font-size:12px;margin-left:5px}
+.bucket.on{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+.bucket.on small{color:inherit;opacity:.8}
+.pay-hint{font-size:13px;color:var(--muted);margin:6px 2px 0;min-height:0}
+.pay-hint:empty{display:none}
+.tag{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:1px}
+#bucketBar{margin-bottom:10px}
+.note-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border-radius:14px;padding:10px 12px;margin:0 0 14px;font-size:14px;box-shadow:var(--shadow)}
 .shake{animation:shake .3s}
 @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 </style>
@@ -199,6 +211,7 @@ dialog label .field{color:var(--text);font-weight:400;font-size:16px}
   <div id="bCopy"></div>
   <div class="day-head"><span>How I split it</span><b id="bAllocated"></b></div>
   <div class="card" style="padding:4px 12px"><div id="bParts"></div></div>
+  <div class="note-line" id="bNote" hidden></div>
   <div class="chips" id="bTemplates"></div>
   <button class="btn block" id="bAddPart" type="button" style="margin-top:12px">+ Add part</button>
 
@@ -221,6 +234,9 @@ dialog label .field{color:var(--text);font-weight:400;font-size:16px}
       <input id="fAmount" inputmode="decimal" placeholder="0" enterkeyhint="done" aria-label="Price">
       <span class="cur"></span>
     </div>
+    <div class="label">Pay from</div>
+    <div id="bucketChips" class="chips scroll" role="radiogroup" aria-label="Pay from"></div>
+    <div class="pay-hint" id="payHint"></div>
     <div class="label">Category <span style="text-transform:none;font-weight:500">(optional)</span></div>
     <div id="catChips" class="chips scroll"></div>
     <div class="label">Date</div>
@@ -243,6 +259,7 @@ dialog label .field{color:var(--text);font-weight:400;font-size:16px}
 
 <!-- ============ REPORTS TAB ============ -->
 <section id="tab-reports" class="tab">
+  <div class="chips scroll" id="bucketBar"></div>
   <div class="seg" id="seg">
     <button data-mode="week">Week</button><button data-mode="month" class="on">Month</button><button data-mode="year">Year</button><button data-mode="all">All</button>
   </div>
@@ -303,6 +320,7 @@ dialog label .field{color:var(--text);font-weight:400;font-size:16px}
     <h2>Edit purchase</h2>
     <label>Item<input id="eName" class="field" maxlength="60"></label>
     <label>Price<input id="eAmount" class="field" inputmode="decimal"></label>
+    <label>Paid from<select id="eBucket" class="field"></select></label>
     <label>Category<select id="eCat" class="field"></select></label>
     <label>Date<input id="eDate" type="date" class="field"></label>
     <div class="dlg-btns">
@@ -323,7 +341,7 @@ dialog label .field{color:var(--text);font-weight:400;font-size:16px}
     </div>
     <label>Amount<input id="pAmount" class="field" inputmode="decimal" placeholder="0"></label>
     <div class="pct" id="pPct"></div>
-    <label class="check"><input type="checkbox" id="pTrack"> This is my spending money (count my purchases from the Add tab against it)</label>
+    <p class="small" style="margin:0">When you add a purchase you can pay it from this part. It shows how much is used and how much is left.</p>
     <div class="dlg-btns">
       <button class="btn primary" type="submit">Save</button>
       <span class="grow"></span>
@@ -351,6 +369,7 @@ dialog label .field{color:var(--text);font-weight:400;font-size:16px}
 
 <div id="toast"><span id="toastMsg"></span><button id="toastUndo" type="button">UNDO</button></div>
 
+
 <script>
 'use strict';
 /* ---------- data ---------- */
@@ -372,6 +391,34 @@ if (!settings.cats.some(c => c.id === 'training')){
   const oi = settings.cats.findIndex(c => c.id === 'other');
   settings.cats.splice(oi < 0 ? settings.cats.length : oi, 0, {id:'training', name:'Training', emoji:'🏋️'});
 }
+/* Budget parts ("envelopes"). Every purchase is paid from one part: item.bucket = part.key.
+   Default is 'spending'. Part keys stay the same across months, so copied plans keep their history. */
+const ENV_COLORS = ['#f2a33a','#e5484d','#8e4ec6','#0090ff','#d6409f','#ad7f58','#46a758','#f76b15','#00a2c7','#7c66dc'];
+const FIXED_COLORS = {spending:'#5b4cf0', investing:'#12a594', savings:'#46a758', vacation:'#f2a33a'};
+const BUILTIN = {spending:{emoji:'💸', name:'Spending'}, investing:{emoji:'📈', name:'Investing'}};
+const slug = s => String(s || '').toLowerCase().trim().replace(/\s+/g,'-').replace(/[^\p{L}\p{N}-]/gu,'') || 'part';
+const bucketOf = i => i.bucket || 'spending';
+function keyColor(key){
+  if (FIXED_COLORS[key]) return FIXED_COLORS[key];
+  let h = 0; for (const ch of key) h = (h*31 + ch.codePointAt(0)) >>> 0;
+  return ENV_COLORS[h % ENV_COLORS.length];
+}
+function migrate(){
+  Object.values(settings.budgets).forEach(b => {
+    if (!b || !Array.isArray(b.parts)) return;
+    const used = new Set();
+    b.parts.forEach(x => {
+      if (!x.key){
+        let k = (x.track === true || x.track === 'spend') ? 'spending' : x.track === 'invest' ? 'investing' : slug(x.name);
+        while (used.has(k)) k += '-' + Math.random().toString(36).slice(2,5);
+        x.key = k;
+      }
+      used.add(x.key); delete x.track;
+    });
+  });
+  items.forEach(i => { if (!i.bucket) i.bucket = i.kind === 'invest' ? 'investing' : 'spending'; delete i.kind; });
+}
+migrate();
 function save(){
   try{ localStorage.setItem(K_ITEMS, JSON.stringify(items)); localStorage.setItem(K_SET, JSON.stringify(settings)); }
   catch(e){ toast('⚠️ Could not save on this device'); }
@@ -410,7 +457,7 @@ function itemStats(){
   [...items].sort((a,b) => a.ts-b.ts).forEach(i => {
     const k = i.name.trim().toLowerCase();
     const s = m[k] || (m[k] = {name:i.name, count:0, total:0});
-    s.count++; s.total += i.amount; s.lastPrice = i.amount; s.lastCat = i.cat; s.name = i.name;
+    s.count++; s.total += i.amount; s.lastPrice = i.amount; s.lastCat = i.cat; s.lastBucket = bucketOf(i); s.name = i.name;
   });
   return m;
 }
@@ -441,7 +488,35 @@ function showTab(t){
 $$('nav.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
 /* ---------- ADD TAB ---------- */
-let selCat = null, catTouched = false;
+let selCat = null, catTouched = false, selBucket = 'spending', bucketTouched = false;
+/* Where can money come from in month k? The month's parts, with Spending always first. */
+function monthBuckets(k){
+  const parts = plan(k).parts;
+  const list = parts.map(x => ({key:x.key, name:x.name, emoji:x.emoji || '💰', amount:x.amount}));
+  if (!list.some(x => x.key === 'spending')) list.unshift({key:'spending', ...BUILTIN.spending, amount:0});
+  if (!parts.length) list.push({key:'investing', ...BUILTIN.investing, amount:0});
+  const sp = list.findIndex(x => x.key === 'spending'); if (sp > 0) list.unshift(...list.splice(sp, 1));
+  return list.map(x => ({...x, color:keyColor(x.key)}));
+}
+function bucketInfo(key){
+  const ks = Object.keys(settings.budgets).sort().reverse();
+  for (const k of ks){ const x = (settings.budgets[k].parts || []).find(p => p.key === key); if (x) return {key, name:x.name, emoji:x.emoji || '💰', color:keyColor(key)}; }
+  const b = BUILTIN[key]; return {key, name: b ? b.name : key, emoji: b ? b.emoji : '💰', color:keyColor(key)};
+}
+function usedIn(key, k){ return sum(items.filter(i => bucketOf(i) === key && i.date.slice(0,7) === k && !i.memb)); }
+function renderBuckets(){
+  const k = ($('#fDate').value || today()).slice(0,7);
+  const list = monthBuckets(k);
+  if (!list.some(x => x.key === selBucket)) list.push(bucketInfo(selBucket));
+  $('#bucketChips').innerHTML = list.map(b => {
+    const left = b.amount ? b.amount - usedIn(b.key, k) : null;
+    return `<button type="button" class="bucket ${b.key === selBucket ? 'on' : ''}" data-bucket="${esc(b.key)}" role="radio" aria-checked="${b.key === selBucket}" style="--c:${b.color}">
+      <span class="em" style="background:${b.color}22">${esc(b.emoji)}</span><span>${esc(b.name)}${left !== null ? `<small>${left >= 0 ? esc(num(left))+' left' : 'over plan'}</small>` : ''}</span></button>`;
+  }).join('');
+  const cur = list.find(x => x.key === selBucket);
+  $('#payHint').textContent = selBucket === 'spending' ? '' : `Counts toward ${cur.emoji} ${cur.name}, not your everyday spending.`;
+}
+$('#bucketChips').onclick = e => { const b = e.target.closest('[data-bucket]'); if (!b) return; selBucket = b.dataset.bucket; bucketTouched = true; renderBuckets(); };
 function renderCats(){
   $('#catChips').innerHTML = settings.cats.map(c =>
     `<button type="button" class="chip ${c.id === selCat ? 'on' : ''}" data-cat="${esc(c.id)}">${c.emoji} ${esc(c.name)}</button>`).join('');
@@ -457,6 +532,7 @@ function fillFrom(name){
   const s = itemStats()[name.trim().toLowerCase()]; if (!s) return;
   $('#fName').value = s.name; $('#fAmount').value = s.lastPrice;
   selCat = s.lastCat; catTouched = false; renderCats();
+  selBucket = s.lastBucket || 'spending'; bucketTouched = false; renderBuckets();
   $('#suggest').innerHTML = '';
   $('#fAmount').focus(); $('#fAmount').select();
 }
@@ -469,32 +545,40 @@ $('#fName').addEventListener('input', () => {
     .sort((a,b) => b.count-a.count).slice(0,5);
   $('#suggest').innerHTML = m.map(sugChip).join('');
   if (stats[q] && !catTouched){ selCat = stats[q].lastCat; renderCats(); }
+  if (stats[q] && !bucketTouched){ selBucket = stats[q].lastBucket || 'spending'; renderBuckets(); }
 });
 $('#fName').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#fAmount').focus(); } });
-$$('.date-row [data-day]').forEach(b => b.onclick = () => { $('#fDate').value = ds(addDays(new Date(), +b.dataset.day)); renderDay(); });
-$('#fDate').onchange = () => { if (!$('#fDate').value) $('#fDate').value = today(); renderDay(); };
+$$('.date-row [data-day]').forEach(b => b.onclick = () => { $('#fDate').value = ds(addDays(new Date(), +b.dataset.day)); renderDay(); renderBuckets(); });
+$('#fDate').onchange = () => { if (!$('#fDate').value) $('#fDate').value = today(); renderDay(); renderBuckets(); };
 
 $('#addForm').onsubmit = e => {
   e.preventDefault();
   const name = $('#fName').value.trim().replace(/\s+/g,' ');
   const amount = parseAmt($('#fAmount').value);
   if (!name){ shake('#fName'); $('#fName').focus(); return; }
-  if (!(amount > 0)){ shake('.amount-wrap'); $('#fAmount').focus(); return; }
+  if (!(amount > 0)){ shake('#addForm .amount-wrap'); $('#fAmount').focus(); return; }
   const known = itemStats()[name.toLowerCase()];
-  const it = {id:uid(), name, amount, cat: selCat || (known && known.lastCat) || 'other', date: $('#fDate').value || today(), ts: Date.now()};
+  const it = {id:uid(), name, amount, cat: selCat || (known && known.lastCat) || 'other', date: $('#fDate').value || today(), ts: Date.now(), bucket: selBucket};
   items.push(it); save();
   $('#fName').value = ''; $('#fAmount').value = ''; $('#suggest').innerHTML = '';
-  selCat = null; catTouched = false;
+  selCat = null; catTouched = false; selBucket = 'spending'; bucketTouched = false;
+  try{ navigator.vibrate && navigator.vibrate(12); }catch(e){}
   document.activeElement && document.activeElement.blur();
   renderAdd();
-  toast(`Added ${name} · ${money(amount)}`, () => { items = items.filter(x => x.id !== it.id); save(); renderAdd(); });
+  const bi = bucketInfo(it.bucket);
+  toast(`Added ${name} · ${money(amount)}${it.bucket !== 'spending' ? ` · ${bi.emoji} ${bi.name}` : ''}`, () => { items = items.filter(x => x.id !== it.id); save(); renderAdd(); });
 };
 function shake(sel){ const el = $(sel); el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); }
 
 function itemRow(i, showDate){
   const c = catById(i.cat);
   return `<li data-id="${esc(i.id)}">${bubble(i.cat)}<div class="grow"><div class="name">${esc(i.name)}</div>
-    <div class="sub">${esc(c.name)}${showDate ? ' · '+fmtDay(i.date) : ''}</div></div><div class="amt">${money(i.amount)}</div></li>`;
+    <div class="sub">${esc(c.name)}${showDate ? ' · '+fmtDay(i.date) : ''}${bucketTag(i)}</div></div><div class="amt">${money(i.amount)}</div></li>`;
+}
+function bucketTag(i){
+  if (bucketOf(i) === 'spending') return '';
+  const b = bucketInfo(bucketOf(i));
+  return `<span class="tag" style="color:${b.color};background:${b.color}1f">${esc(b.emoji)} ${esc(b.name)}</span>`;
 }
 function renderDay(){
   const d = $('#fDate').value || today();
@@ -510,9 +594,10 @@ function renderSummary(){
   const wk = ds(addDays(t, -((t.getDay()+6)%7)));
   const mo = ds(new Date(t.getFullYear(), t.getMonth(), 1));
   const td = today();
-  $('#sumToday').textContent = money(sum(items.filter(i => i.date === td)));
-  $('#sumWeek').textContent = money(sum(items.filter(i => i.date >= wk && i.date <= td)));
-  $('#sumMonth').textContent = money(sum(items.filter(i => i.date >= mo && i.date <= td)));
+  const sp = items.filter(i => bucketOf(i) === 'spending');
+  $('#sumToday').textContent = money(sum(sp.filter(i => i.date === td)));
+  $('#sumWeek').textContent = money(sum(sp.filter(i => i.date >= wk && i.date <= td)));
+  $('#sumMonth').textContent = money(sum(sp.filter(i => i.date >= mo && i.date <= td)));
 }
 function renderQuick(){
   const top = Object.values(itemStats()).sort((a,b) => b.count-a.count || b.total-a.total).slice(0,10);
@@ -522,7 +607,7 @@ function renderQuick(){
 function renderAdd(){
   $$('.cur').forEach(e => e.textContent = curSym());
   if (!$('#fDate').value) $('#fDate').value = today();
-  renderCats(); renderSummary(); renderQuick(); renderDay();
+  renderCats(); renderBuckets(); renderSummary(); renderQuick(); renderDay();
 }
 
 /* ---------- edit dialog ---------- */
@@ -532,6 +617,8 @@ function openEdit(id){
   const i = items.find(x => x.id === id); if (!i) return;
   editId = id;
   $('#eName').value = i.name; $('#eAmount').value = i.amount; $('#eDate').value = i.date;
+  const bl = monthBuckets(i.date.slice(0,7)); if (!bl.some(b => b.key === bucketOf(i))) bl.push(bucketInfo(bucketOf(i)));
+  $('#eBucket').innerHTML = bl.map(b => `<option value="${esc(b.key)}" ${b.key === bucketOf(i) ? 'selected' : ''}>${esc(b.emoji)} ${esc(b.name)}</option>`).join('');
   const cats = settings.cats.some(c => c.id === i.cat) ? settings.cats : [...settings.cats, catById(i.cat)];
   $('#eCat').innerHTML = cats.map(c => `<option value="${esc(c.id)}" ${c.id === i.cat ? 'selected' : ''}>${c.emoji} ${esc(c.name)}</option>`).join('');
   dlg.showModal();
@@ -545,7 +632,7 @@ $('#editForm').onsubmit = e => {
   const name = $('#eName').value.trim(), amount = parseAmt($('#eAmount').value);
   if (!name){ shake('#eName'); return; }
   if (!(amount > 0)){ shake('#eAmount'); return; }
-  Object.assign(i, {name, amount, cat: $('#eCat').value, date: $('#eDate').value || i.date});
+  Object.assign(i, {name, amount, cat: $('#eCat').value, date: $('#eDate').value || i.date, bucket: $('#eBucket').value || 'spending'});
   save(); dlg.close(); refresh(); toast('Saved');
 };
 $('#eCancel').onclick = () => dlg.close();
@@ -560,7 +647,16 @@ function refresh(){
 }
 
 /* ---------- REPORTS ---------- */
-const rp = {mode:'month', offset:0};
+const rp = {mode:'month', offset:0, bucket:'spending'};
+$('#bucketBar').onclick = e => { const b = e.target.closest('[data-rb]'); if (!b) return; rp.bucket = b.dataset.rb; renderReports(); };
+const rpPool = () => rp.bucket === 'all' ? items : items.filter(i => bucketOf(i) === rp.bucket);
+function renderBucketBar(){
+  const keys = ['spending', ...new Set(items.map(bucketOf).filter(k => k !== 'spending'))];
+  if (!keys.includes(rp.bucket) && rp.bucket !== 'all') rp.bucket = 'spending';
+  $('#bucketBar').innerHTML = keys.map(k => { const b = bucketInfo(k);
+    return `<button type="button" class="chip ${rp.bucket === k ? 'on' : ''}" data-rb="${esc(k)}">${esc(b.emoji)} ${esc(b.name)}</button>`; }).join('')
+    + `<button type="button" class="chip ${rp.bucket === 'all' ? 'on' : ''}" data-rb="all">Everything</button>`;
+}
 function firstDate(){ return items.reduce((m,i) => i.date < m ? i.date : m, today()); }
 function periodRange(mode, off){
   const t = parse(today()); let start, end, label;
@@ -621,14 +717,21 @@ const WD_LONG = ['Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturd
 
 function renderReports(){
   $$('#seg button').forEach(b => b.classList.toggle('on', b.dataset.mode === rp.mode));
+  renderBucketBar();
+  const pool = rpPool();
+  const RB = rp.bucket === 'all' ? null : bucketInfo(rp.bucket);
+  const W = !RB ? {total:'All money out', by:'Money out', verb:'spend'} : rp.bucket === 'spending' ? {total:'Total spent', by:'Spending', verb:'spend'}
+    : rp.bucket === 'investing' ? {total:'Total invested', by:'Investing', verb:'invest'} : {total:`${RB.emoji} ${RB.name}`, by:RB.name, verb:'spend'};
   const P = periodRange(rp.mode, rp.offset);
   $('#periodLabel').textContent = P.label;
   $('#nextP').disabled = rp.offset >= 0 || rp.mode === 'all';
   $('#prevP').disabled = rp.mode === 'all';
-  const list = items.filter(i => i.date >= P.a && i.date <= P.b);
+  const list = pool.filter(i => i.date >= P.a && i.date <= P.b);
   const body = $('#reportBody');
+
   if (!list.length){
-    body.innerHTML = `<div class="card empty"><span class="big">📊</span>No purchases in this period yet.<br>Add a few on the <b>Add</b> tab and your charts show up here.
+    body.innerHTML = RB && rp.bucket !== 'spending' ? `<div class="card empty"><span class="big">${esc(RB.emoji)}</span>Nothing paid from <b>${esc(RB.name)}</b> in this period yet.<br>When you add a purchase, pick <b>${esc(RB.name)}</b> under “Pay from”.</div>`
+      : `<div class="card empty"><span class="big">📊</span>No purchases in this period yet.<br>Add a few on the <b>Add</b> tab and your charts show up here.
       ${items.length ? '' : `<br><br><button class="btn" id="demoBtn" type="button">Try it with sample data</button>`}</div>`;
     const db = $('#demoBtn'); if (db) db.onclick = loadDemo;
     return;
@@ -642,7 +745,7 @@ function renderReports(){
     const Q = periodRange(rp.mode, rp.offset-1);
     // compare same number of elapsed days for the current period
     const qEnd = rp.offset === 0 ? ds(addDays(Q.start, days-1)) : Q.b;
-    const pt = sum(items.filter(i => i.date >= Q.a && i.date <= (qEnd < Q.b ? qEnd : Q.b)));
+    const pt = sum(pool.filter(i => i.date >= Q.a && i.date <= (qEnd < Q.b ? qEnd : Q.b)));
     if (pt > 0){
       const d = (total-pt)/pt*100;
       cmp = `<span class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d).toFixed(0)}%</span> vs same point last ${rp.mode}`;
@@ -696,14 +799,14 @@ function renderReports(){
 
   let html = `
   <div class="stats">
-    <div class="stat hero"><small>Total spent</small><b>${money(total)}</b><div class="note">${cmp}</div></div>
+    <div class="stat hero"><small>${esc(W.total)}</small><b>${money(total)}</b><div class="note">${cmp}</div></div>
     <div class="stat"><small>${perLabel}</small><b>${money(avgVal)}</b></div>
     <div class="stat"><small>Purchases</small><b>${list.length}</b><div class="note">on ${Object.keys(byDay).length} day${Object.keys(byDay).length > 1 ? 's' : ''}</div></div>
     <div class="stat" style="grid-column:1/-1"><small>Most expensive day</small><b>${money(bigDayVal)}</b><div class="note">${fmtDay(bigDay, true)}</div></div>
   </div>
 
   <div class="card">
-    <h3>${monthly ? 'Spending by month' : 'Spending by day'}</h3>
+    <h3>${W.by} by ${monthly ? 'month' : 'day'}</h3>
     <p class="hint" id="tip1">Tap a bar to see the amount.</p>
     ${barsHTML(buckets, 'chart1')}
   </div>
@@ -714,7 +817,9 @@ function renderReports(){
       <div class="insight"><span>${cats[0].c.emoji}</span><span>Most of your money goes to <b>${esc(cats[0].c.name)}</b>: ${money(cats[0].value)} (${Math.round(cats[0].value/total*100)}%).</span></div>
       <div class="insight"><span>🏆</span><span>Biggest item: <b>${esc(topItems[0].name)}</b>, ${money(topItems[0].total)} in total${topItems[0].count > 1 ? ` over ${topItems[0].count} purchases` : ''}.</span></div>
       ${mostBought.count > 1 ? `<div class="insight"><span>🔁</span><span>Most often bought: <b>${esc(mostBought.name)}</b>, ${mostBought.count} times (avg ${money(mostBought.total/mostBought.count)} each).</span></div>` : ''}
-      ${days >= 7 ? `<div class="insight"><span>📅</span><span>You spend the most on <b>${WD_LONG[wdMax]}</b>.</span></div>` : ''}
+      ${!RB ? Object.entries(list.reduce((m,i) => (m[bucketOf(i)] = (m[bucketOf(i)] || 0) + i.amount, m), {})).filter(([k]) => k !== 'spending').map(([k,v]) => { const b = bucketInfo(k);
+        return `<div class="insight"><span>${esc(b.emoji)}</span><span><b>${Math.round(v/total*100)}%</b> went to ${esc(b.name)} (${money(v)}).</span></div>`; }).join('') : ''}
+      ${days >= 7 ? `<div class="insight"><span>📅</span><span>You ${W.verb} the most on <b>${WD_LONG[wdMax]}</b>.</span></div>` : ''}
     </div>
   </div>
 
@@ -728,7 +833,7 @@ function renderReports(){
 
   <div class="card">
     <h3>Top items</h3>
-    <p class="hint">What you spent the most money on.</p>
+    <p class="hint">Where the most money went.</p>
     ${topItems.map(t => `<div class="top-item"><div class="line"><span>${catById(t.cat).emoji}</span><span class="n">${esc(t.name)} <small>×${t.count}</small></span><b>${money(t.total)}</b></div>
       <div class="hbar"><i style="width:${t.total/topItems[0].total*100}%;background:${catColor(t.cat)}"></i></div></div>`).join('')}
   </div>
@@ -891,14 +996,14 @@ function download(name, text, type){
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 $('#expJson').onclick = () => {
-  const data = {app:'budget-max', version:1, exported:new Date().toISOString(), settings, items};
+  const data = {app:'budget-max', version:3, exported:new Date().toISOString(), settings, items};
   download(`budget-max-backup-${today()}.json`, JSON.stringify(data, null, 1), 'application/json');
 };
 $('#expCsv').onclick = () => {
   const q = s => `"${String(s).replace(/"/g,'""')}"`;
-  const rows = [['Date','Item','Category','Price','Currency'].join(',')]
+  const rows = [['Date','Item','Category','Paid from','Price','Currency'].join(',')]
     .concat([...items].sort((a,b) => a.date.localeCompare(b.date) || a.ts-b.ts)
-      .map(i => [i.date, q(i.name), q(catById(i.cat).name), i.amount, q(settings.currency)].join(',')));
+      .map(i => [i.date, q(i.name), q(catById(i.cat).name), q(bucketInfo(bucketOf(i)).name), i.amount, q(settings.currency)].join(',')));
   download(`budget-max-${today()}.csv`, '﻿'+rows.join('\r\n'), 'text/csv');
 };
 $('#impBtn').onclick = () => $('#impFile').click();
@@ -910,7 +1015,7 @@ $('#impFile').onchange = async e => {
     if (!incoming.length && !(data.settings && (data.settings.budgets || data.settings.members))) throw new Error('empty');
     const have = new Set(items.map(i => i.id));
     let added = 0;
-    incoming.forEach(i => { if (!i.id) i.id = uid(); if (!have.has(i.id)){ items.push({id:i.id, name:String(i.name), amount:+i.amount, cat:i.cat || 'other', date:i.date, ts:i.ts || Date.now(), ...(i.memb ? {memb:i.memb} : {})}); added++; } });
+    incoming.forEach(i => { if (!i.id) i.id = uid(); if (!have.has(i.id)){ items.push({id:i.id, name:String(i.name), amount:+i.amount, cat:i.cat || 'other', date:i.date, ts:i.ts || Date.now(), bucket: i.bucket ? String(i.bucket) : i.kind === 'invest' ? 'investing' : 'spending', ...(i.memb ? {memb:i.memb} : {})}); added++; } });
     if (data.settings && Array.isArray(data.settings.cats)){
       data.settings.cats.forEach(c => { if (c && c.id && !settings.cats.some(x => x.id === c.id)) settings.cats.push({id:c.id, name:String(c.name), emoji:String(c.emoji || '🏷️')}); });
       if (data.settings.currency && !items.length) settings.currency = data.settings.currency;
@@ -921,7 +1026,7 @@ $('#impFile').onchange = async e => {
     if (data.settings && Array.isArray(data.settings.members)){
       data.settings.members.forEach(m => { if (m && m.id && !settings.members.some(x => x.id === m.id)) settings.members.push(m); });
     }
-    save(); renderSettings();
+    migrate(); save(); renderSettings();
     toast(added ? `Restored ${added} purchase${added > 1 ? 's' : ''}` : 'Backup already up to date');
   }catch(err){ toast('⚠️ That file is not a Budget Max backup'); }
 };
@@ -939,21 +1044,23 @@ function loadDemo(){
     ['Cinema','fun',[500,700]],['T-shirt','shopping',[1200,2500]],['Pharmacy','health',[300,1500]],['Phone bill','bills',[1500,1500]],
     ['Energy drink','drinks',[150,200]],['Taxi','transport',[400,900]],['Lunch','food',[500,900]]
   ];
+  const monthlyInv = [['AI subscription','bills',2350,3],['ETF','other',10000,10],['Online course','other',3500,20]];
   const t = new Date(); let n = 0;
   for (let d = 0; d < 75; d++){
     const day = ds(addDays(t, -d)); const k = 1 + Math.floor(Math.random()*4) + ((addDays(t,-d).getDay() % 6 === 0) ? 2 : 0);
     for (let j = 0; j < k; j++){
       const [name, cat, [lo,hi]] = pool[Math.floor(Math.random()*pool.length)];
       if (name === 'Phone bill' && addDays(t,-d).getDate() !== 5) continue;
-      items.push({id:uid(), name, cat, amount: Math.round((lo + Math.random()*(hi-lo))/10)*10 || lo, date: day, ts: Date.now()-d*864e5-j, sample:true}); n++;
+      items.push({id:uid(), name, cat, amount: Math.round((lo + Math.random()*(hi-lo))/10)*10 || lo, date: day, ts: Date.now()-d*864e5-j, sample:true, bucket:'spending'}); n++;
     }
+    monthlyInv.forEach(([name, cat, amount, dom]) => { if (addDays(t,-d).getDate() === dom){ items.push({id:uid(), name, cat, amount, date: day, ts: Date.now()-d*864e5-9, sample:true, bucket:'investing'}); n++; } });
   }
   save(); renderReports(); toast(`Added ${n} sample purchases (remove them in Settings)`);
 }
 
 
 /* ---------- BUDGET TAB ---------- */
-const PART_TEMPLATES = [['✈️','Vacation'],['📈','Investing'],['💸','Spending',true],['🏦','Savings'],['🏠','Rent'],['💡','Bills'],['🎁','Gifts']];
+const PART_TEMPLATES = [['💸','Spending'],['📈','Investing'],['🏦','Savings'],['✈️','Vacation'],['🏠','Rent'],['💡','Bills'],['🎓','Learning'],['🎁','Gifts']];
 const MEMB_COLOR = '#f43f5e';
 let bOff = 0;
 const monthKey = off => { const t = new Date(); const d = new Date(t.getFullYear(), t.getMonth()+off, 1); return d.getFullYear()+'-'+pad(d.getMonth()+1); };
@@ -964,8 +1071,6 @@ function plan(k, create){
   if (!p && create) p = settings.budgets[k] = {income:0, parts:[]};
   return p || {income:0, parts:[]};
 }
-
-
 
 $('#bPrev').onclick = () => { bOff--; renderBudget(); };
 $('#bNext').onclick = () => { if (bOff < 12){ bOff++; renderBudget(); } };
@@ -990,44 +1095,49 @@ function renderBudget(){
 function renderBudgetBody(){
   const k = monthKey(bOff), p = plan(k);
   const inc = parseAmt($('#bIncome').value) || 0;
-  const mt = 0;
-  const spent = sum(items.filter(i => i.date.slice(0,7) === k && !i.memb));
-  const segs = p.parts.map((x,i) => ({v:x.amount, color:PALETTE[i % PALETTE.length]}));
-  const alloc = segs.reduce((s,x) => s + x.v, 0), left = Math.round((inc - alloc)*100)/100;
+  const isNow = bOff === 0;
+  const daysLeft = isNow ? daysInMonth(k) - new Date().getDate() + 1 : 0;
+  const alloc = p.parts.reduce((s,x) => s + x.amount, 0), left = Math.round((inc - alloc)*100)/100;
   const base = Math.max(inc, alloc) || 1;
-  $('#bStack').innerHTML = segs.map(x => `<i style="width:${x.v/base*100}%;background:${x.color}"></i>`).join('');
+  $('#bStack').innerHTML = p.parts.map(x => `<i style="width:${x.amount/base*100}%;background:${keyColor(x.key)}"></i>`).join('');
   $('#bLeft').innerHTML = !inc ? 'Type in your salary, then split it into parts below.'
     : left > 0 ? `<b>${money(left)}</b> left to split`
     : left === 0 ? '✅ Your whole salary is split'
     : `<b class="up">${money(-left)}</b> more than your salary`;
   $('#bAllocated').textContent = alloc ? money(alloc) : '';
 
-  const isNow = bOff === 0;
-  const daysLeft = isNow ? daysInMonth(k) - new Date().getDate() + 1 : 0;
-  let rows = p.parts.map((x,i) => {
-    const color = PALETTE[i % PALETTE.length];
+  const rows = p.parts.map(x => {
+    const color = keyColor(x.key), used = usedIn(x.key, k), rem = x.amount - used;
     const pct = inc ? `<small>${Math.round(x.amount/inc*100)}%</small>` : '';
     let sub = esc(inc ? Math.round(x.amount/inc*100)+'% of salary' : 'Planned');
-    if (x.track){
-      const rem = x.amount - spent;
-      const w = x.amount ? Math.min(100, spent/x.amount*100) : 100;
-      sub = `Spent ${money(spent)} · ${rem >= 0 ? `<b>${money(rem)}</b> left` : `<b class="up">${money(-rem)} over</b>`}`
-        + (isNow && rem > 0 && daysLeft > 0 ? ` · ≈ ${money(rem/daysLeft)}/day` : '')
+    if (used || x.key === 'spending'){
+      const verb = x.key === 'investing' ? 'Invested' : x.key === 'savings' ? 'Saved' : 'Spent';
+      const w = x.amount ? Math.min(100, used/x.amount*100) : 100;
+      sub = `${verb} ${money(used)} · ${rem >= 0 ? `<b>${money(rem)}</b> left` : `<b class="up">${money(-rem)} over</b>`}`
+        + (x.key === 'spending' && isNow && rem > 0 && daysLeft > 0 ? ` · ≈ ${money(rem/daysLeft >= 100 ? Math.round(rem/daysLeft) : rem/daysLeft)}/day` : '')
         + `<div class="hbar"><i style="width:${w}%;background:${rem >= 0 ? color : 'var(--bad)'}"></i></div>`;
     }
     return `<div class="part" data-part="${esc(x.id)}"><div class="bubble" style="background:${color}22">${esc(x.emoji || '💰')}</div>
       <div class="grow"><div class="name">${esc(x.name)}</div><div class="sub">${sub}</div></div>
-      <div class="amt">${money(x.amount)}${x.track ? pct : ''}</div></div>`;
+      <div class="amt">${money(x.amount)}${pct}</div></div>`;
   }).join('');
   $('#bParts').innerHTML = rows || `<div class="empty"><span class="big">🧩</span>No parts yet. Tap a suggestion below or “+ Add part”.</div>`;
 
-  const used = new Set(p.parts.map(x => x.name.toLowerCase()));
-  $('#bTemplates').innerHTML = PART_TEMPLATES.filter(t => !used.has(t[1].toLowerCase()))
-    .map(t => `<button type="button" class="chip" data-tpl="${esc(t[1])}">${t[0]} ${esc(t[1])}</button>`).join('');
+  // purchases paid from a part that this month's plan doesn't have
+  const keys = new Set(p.parts.map(x => x.key));
+  const orphan = {}; items.filter(i => i.date.slice(0,7) === k && !keys.has(bucketOf(i))).forEach(i => orphan[bucketOf(i)] = (orphan[bucketOf(i)] || 0) + i.amount);
+  const ok = Object.entries(orphan);
+  $('#bNote').hidden = !ok.length || !p.parts.length;
+  $('#bNote').innerHTML = ok.map(([key,v]) => { const b = bucketInfo(key); return `${esc(b.emoji)} <b>${money(v)}</b>&nbsp;from ${esc(b.name)}`; }).join(' · ')
+    + '<span class="small">, not in this month’s plan yet</span>';
 
+  const used = new Set(p.parts.map(x => x.key));
+  $('#bTemplates').innerHTML = PART_TEMPLATES.filter(t => !used.has(slug(t[1])))
+    .map(t => `<button type="button" class="chip" data-tpl="${esc(t[1])}">${t[0]} ${esc(t[1])}</button>`).join('');
 }
 
 $('#bIncome').addEventListener('input', renderBudgetBody);
+$('#bAddPart').onclick = () => openPart(null, {emoji:'💰', name:''});
 $('#bIncome').addEventListener('change', () => {
   const k = monthKey(bOff); plan(k, true).income = parseAmt($('#bIncome').value) || 0; save(); renderBudget();
 });
@@ -1035,10 +1145,9 @@ $('#bIncome').addEventListener('change', () => {
 $('#tab-budget').addEventListener('click', e => {
   const t = e.target;
   const tpl = t.closest('[data-tpl]');
-  if (tpl){ const x = PART_TEMPLATES.find(z => z[1] === tpl.dataset.tpl); openPart(null, {emoji:x[0], name:x[1], track:!!x[2]}); return; }
+  if (tpl){ const x = PART_TEMPLATES.find(z => z[1] === tpl.dataset.tpl); openPart(null, {emoji:x[0], name:x[1]}); return; }
   const part = t.closest('[data-part]'); if (part){ openPart(part.dataset.part); return; }
 });
-$('#bAddPart').onclick = () => openPart(null, {emoji:'💰', name:'', track:false});
 
 /* part dialog */
 let editPartId = null;
@@ -1050,7 +1159,7 @@ function openPart(id, preset){
   const v = x || preset;
   $('#pTitle').textContent = x ? 'Edit part' : 'New part';
   $('#pEmoji').value = v.emoji || '💰'; $('#pName').value = v.name || '';
-  $('#pAmount').value = x ? x.amount : ''; $('#pTrack').checked = !!v.track;
+  $('#pAmount').value = x ? x.amount : '';
   $('#pDel').hidden = !x;
   const inc = parseAmt($('#bIncome').value) || p.income || 0;
   $('#pPct').innerHTML = inc ? [5,10,20,30,40,50].map(n => `<button type="button" class="chip" data-pct="${n}">${n}%</button>`).join('') : '';
@@ -1069,11 +1178,14 @@ $('#partForm').onsubmit = e => {
   if (!(amount >= 0)){ shake('#pAmount'); return; }
   const k = monthKey(bOff), p = plan(k, true);
   if (!p.income) p.income = parseAmt($('#bIncome').value) || 0;
-  const track = $('#pTrack').checked;
-  if (track) p.parts.forEach(z => z.track = false);
-  const data = {name, amount, emoji: $('#pEmoji').value.trim() || '💰', track};
+  const data = {name, amount, emoji: $('#pEmoji').value.trim() || '💰'};
   if (editPartId){ Object.assign(p.parts.find(z => z.id === editPartId), data); }
-  else p.parts.push({id: uid(), ...data});
+  else {
+    // reuse the key of a part with the same name from another month, so history lines up
+    let key = slug(name);
+    if (p.parts.some(z => z.key === key)) key += '-' + uid().slice(-4);
+    p.parts.push({id: uid(), key, ...data});
+  }
   save(); partDlg.close(); renderBudget();
 };
 $('#pCancel').onclick = () => partDlg.close();

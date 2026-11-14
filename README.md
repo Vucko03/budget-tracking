@@ -29,6 +29,8 @@ Open it once while online so it saves itself for offline use. From then on it wo
 
 ## Tips
 - Budget tab (first screen): enter your salary each month and split it into parts (vacation, investing, spending…).
+- When adding a purchase, pick **Pay from**: Spending is the default, but you can pay from any part of your salary (Investing, Vacation, Savings, your own parts). Each part's card on the Budget tab shows how much is used and how much is left. The app remembers which part you used for each item.
+- Reports has a chip row to see one part (Spending, Investing, Vacation...) or Everything.
 - Change the currency in Settings (default RSD).
 - Use Settings → "Save backup file" once in a while. Use "Restore from backup" on a new phone.
 - Reports → empty state has "Try it with sample data" to preview the charts. Remove it in Settings.
