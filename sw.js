@@ -1,5 +1,5 @@
 // Budget Max service worker: caches the app so it works fully offline.
-const CACHE = 'budget-max-v4';
+const CACHE = 'budget-max-v5';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

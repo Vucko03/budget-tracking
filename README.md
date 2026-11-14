@@ -29,6 +29,7 @@ Open it once while online so it saves itself for offline use. From then on it wo
 
 ## Tips
 - Budget tab (first screen): enter your salary each month and split it into parts (vacation, investing, spending…).
+- When adding a purchase, the type is 💸 Spending by default. Switch it to 📈 Investing for things like an AI subscription, a course or stocks. Investing entries count toward the budget part marked "Investing", not your spending, and Reports has a Spending / Investing / Both switch.
 - Change the currency in Settings (default RSD).
 - Use Settings → "Save backup file" once in a while. Use "Restore from backup" on a new phone.
 - Reports → empty state has "Try it with sample data" to preview the charts. Remove it in Settings.
